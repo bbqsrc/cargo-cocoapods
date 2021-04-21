@@ -16,7 +16,7 @@ pub struct Config {
 pub fn config(package: &Package) -> Config {
     let meta: Metadata = match serde_json::from_value(package.metadata.clone()) {
         Ok(v) => v,
-        Err(e) => {
+        Err(_e) => {
             return Default::default();
         }
     };

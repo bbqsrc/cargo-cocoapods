@@ -6,6 +6,23 @@ mod cli;
 mod meta;
 mod podspec;
 
+pub(crate) static MACOS_TRIPLES: &[&str] = &[
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+    // "x86_64-apple-ios-macabi",
+];
+
+pub(crate) static IOS_TRIPLES: &[&str] = &[
+    "x86_64-apple-ios",
+    "aarch64-apple-ios",
+    "aarch64-apple-ios-sim",
+];
+
+pub(crate) static NIGHTLY_TRIPLES: &[&str] = &[
+    // "x86_64-apple-ios-macabi",
+    "aarch64-apple-ios-sim",
+];
+
 fn main() {
     env_logger::from_env(env_logger::Env::default().default_filter_or("trace")).init();
 

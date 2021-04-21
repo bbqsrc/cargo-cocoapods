@@ -8,7 +8,7 @@ use gumdrop::{Options, ParsingStyle};
 use heck::CamelCase;
 use std::io::Write;
 
-use crate::podspec::Podspec;
+use crate::{podspec::Podspec, IOS_TRIPLES, MACOS_TRIPLES, NIGHTLY_TRIPLES};
 
 #[derive(Debug, Options)]
 struct BuildArgs {
@@ -73,13 +73,6 @@ pub struct Args {
     #[options(command)]
     command: Option<Command>,
 }
-
-// Do these things:
-//   init - make a new cargo cocoapods repo
-//      lib/ will be the Rust library
-//      src/ will be the Swift support nonsense
-//   build - do a cargo lipo-style build
-//   publish - publish the thing to cocoapods
 
 fn derive_manifest(manifest_path: Option<&Path>) -> (Metadata, Package, Vec<Target>) {
     let mut cmd = MetadataCommand::new();
@@ -235,6 +228,7 @@ fn init(args: InitArgs) {
 
     let mut podspec = Podspec::from(package.clone());
     podspec.disable_bitcode();
+    podspec.add_library_search_paths();
     for target in &targets {
         podspec.add_target(target);
     }
@@ -264,30 +258,15 @@ fn init(args: InitArgs) {
         .unwrap();
 }
 
-static MACOS_TRIPLES: &[&str] = &[
-    "x86_64-apple-darwin",
-    "aarch64-apple-darwin",
-    // "x86_64-apple-ios-macabi",
-];
-static IOS_TRIPLES: &[&str] = &[
-    "x86_64-apple-ios",
-    "aarch64-apple-ios",
-    "aarch64-apple-ios-sim",
-];
-
-static NIGHTLY_TRIPLES: &[&str] = &[
-    // "x86_64-apple-ios-macabi",
-    "aarch64-apple-ios-sim",
-];
-
 fn build(args: BuildArgs) {
     let has_subtree = std::fs::read_dir("./crate").is_ok();
 
-    let (metadata, _package, targets) = derive_manifest(if has_subtree {
+    let (metadata, package, targets) = derive_manifest(if has_subtree {
         Some(Path::new("./crate/Cargo.toml"))
     } else {
         args.manifest_path.as_ref().map(|x| &**x)
     });
+    let package_dir = package.manifest_path.parent().unwrap();
     let mut cargo_args = args.cargo_args;
 
     if cargo_args.contains(&"--target".into()) {
@@ -304,43 +283,29 @@ fn build(args: BuildArgs) {
     }
 
     std::fs::create_dir_all("./dist").unwrap();
-    std::fs::create_dir_all("./dist/ios").unwrap();
-    std::fs::create_dir_all("./dist/macos").unwrap();
+    for triple in IOS_TRIPLES {
+        std::fs::create_dir_all(format!("./dist/{}", triple)).unwrap();
+    }
+    for triple in MACOS_TRIPLES {
+        std::fs::create_dir_all(format!("./dist/{}", triple)).unwrap();
+    }
 
     for triple in IOS_TRIPLES {
         log::info!("Building for target '{}'...", triple);
 
         crate::cargo::build(
-            &metadata.workspace_root,
+            &package_dir,
             triple,
             &cargo_args,
             NIGHTLY_TRIPLES.contains(&triple),
-        );
-    }
-
-    for target in targets.iter() {
-        std::process::Command::new("lipo")
-            .args(&["-create", "-output"])
-            .arg(format!("./dist/ios/lib{}.a", target.name))
-            .args(IOS_TRIPLES.iter().map(|x| {
-                metadata
-                    .target_directory
-                    .join(x)
-                    .join("release")
-                    .join(format!("lib{}.a", target.name))
-            }))
-            .status()
-            .unwrap();
-        log::info!(
-            "Universal library created at 'dist/ios/lib{}.a'.",
-            target.name
         );
     }
 
     for triple in MACOS_TRIPLES {
         log::info!("Building for target '{}'...", triple);
+
         crate::cargo::build(
-            &metadata.workspace_root,
+            &package_dir,
             triple,
             &cargo_args,
             NIGHTLY_TRIPLES.contains(&triple),
@@ -348,26 +313,48 @@ fn build(args: BuildArgs) {
     }
 
     for target in targets.iter() {
-        std::process::Command::new("lipo")
-            .args(&["-create", "-output"])
-            .arg(format!("./dist/macos/lib{}.a", target.name))
-            .args(MACOS_TRIPLES.iter().map(|x| {
-                metadata
-                    .target_directory
-                    .join(x)
-                    .join("release")
-                    .join(format!("lib{}.a", target.name))
-            }))
-            .status()
-            .unwrap();
-        log::info!(
-            "Universal library created at 'dist/macos/lib{}.a'.",
-            target.name
-        );
+        let lib_paths = IOS_TRIPLES
+            .iter()
+            .map(|x| {
+                (
+                    x,
+                    metadata
+                        .target_directory
+                        .join(x)
+                        .join("release")
+                        .join(format!("lib{}.a", target.name.replace("-", "_"))),
+                )
+            })
+            .chain(MACOS_TRIPLES.iter().map(|x| {
+                (
+                    x,
+                    metadata
+                        .target_directory
+                        .join(x)
+                        .join("release")
+                        .join(format!("lib{}.a", target.name.replace("-", "_"))),
+                )
+            }));
+        for (triple, path) in lib_paths {
+            let result = std::fs::copy(
+                &path,
+                format!(
+                    "./dist/{}/{}",
+                    triple,
+                    path.file_name().unwrap().to_string_lossy()
+                ),
+            );
+            match result {
+                Ok(_) => {}
+                Err(e) => {
+                    panic!("Error copying {:?}: {:?}", path, e);
+                }
+            }
+        }
     }
 }
 
-fn bundle(args: BundleArgs) {
+fn bundle(_args: BundleArgs) {
     let mut builder = globset::GlobSetBuilder::new();
     builder.add(globset::Glob::new("*.podspec").unwrap());
     builder.add(globset::Glob::new("LICENSE").unwrap());
@@ -393,8 +380,8 @@ fn bundle(args: BundleArgs) {
         .unwrap();
 }
 
-fn publish(args: PublishArgs) {
-    // https://github.com/divvun/pahkat/releases/download/v2.0.0%2Brpc/libpahkat_rpc_2.0.0_windows_i686.txz
+fn publish(_args: PublishArgs) {
+    todo!()
 }
 
 fn print_help(args: &Args) {

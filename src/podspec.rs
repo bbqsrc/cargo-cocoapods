@@ -37,22 +37,52 @@ pub struct Podspec {
     pub ios: OsSubspec,
     pub pod_target_xcconfig: IndexMap<String, String>,
     pub prepare_command: Option<String>,
+    pub preserve_paths: Vec<String>,
 }
 
 impl Podspec {
     pub(crate) fn add_target(&mut self, target: &Target) {
-        self.libraries.push(target.name.clone());
-        self.macos
-            .vendored_libraries
-            .push(format!("dist/macos/lib{}.a", target.name));
-        self.ios
-            .vendored_libraries
-            .push(format!("dist/ios/lib{}.a", target.name));
+        match self.pod_target_xcconfig.get_mut("OTHER_LDFLAGS") {
+            Some(v) => {
+                v.push_str(&format!(" -l{}", target.name.replace("-", "_")));
+            }
+            None => {
+                self.pod_target_xcconfig.insert(
+                    "OTHER_LDFLAGS".into(),
+                    format!("-l{}", target.name.replace("-", "_")),
+                );
+            }
+        }
     }
 
     pub(crate) fn disable_bitcode(&mut self) {
         self.pod_target_xcconfig
             .insert("ENABLE_BITCODE".into(), "NO".into());
+    }
+
+    pub(crate) fn add_library_search_paths(&mut self) {
+        self.preserve_paths.push("dist/**/*".into());
+
+        self.pod_target_xcconfig.insert(
+            "LIBRARY_SEARCH_PATHS[sdk=iphoneos*][arch=arm64]".into(),
+            "${PODS_TARGET_SRCROOT}/dist/aarch64-apple-ios".into(),
+        );
+        self.pod_target_xcconfig.insert(
+            "LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*][arch=x86_64]".into(),
+            "${PODS_TARGET_SRCROOT}/dist/x86_64-apple-ios".into(),
+        );
+        self.pod_target_xcconfig.insert(
+            "LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*][arch=arm64]".into(),
+            "${PODS_TARGET_SRCROOT}/dist/aarch64-apple-ios-sim".into(),
+        );
+        self.pod_target_xcconfig.insert(
+            "LIBRARY_SEARCH_PATHS[sdk=macos*][arch=x86_64]".into(),
+            "${PODS_TARGET_SRCROOT}/dist/x86_64-apple-darwin".into(),
+        );
+        self.pod_target_xcconfig.insert(
+            "LIBRARY_SEARCH_PATHS[sdk=macos*][arch=arm64]".into(),
+            "${PODS_TARGET_SRCROOT}/dist/aarch64-apple-darwin".into(),
+        );
     }
 }
 
@@ -111,6 +141,7 @@ impl From<Package> for Podspec {
             libraries: vec![],
             pod_target_xcconfig: Default::default(),
             prepare_command: None,
+            preserve_paths: vec![],
         }
     }
 }
@@ -178,6 +209,13 @@ impl Display for Podspec {
             f.write_fmt(format_args!(
                 "  spec.libraries = ['{}']\n",
                 self.libraries.join("', '")
+            ))?;
+        }
+
+        if !self.preserve_paths.is_empty() {
+            f.write_fmt(format_args!(
+                "  spec.preserve_paths = ['{}']\n",
+                self.preserve_paths.join("', '")
             ))?;
         }
 
