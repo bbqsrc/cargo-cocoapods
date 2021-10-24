@@ -12,7 +12,10 @@ pub(crate) fn build(
     let mut cargo_cmd = Command::new(cargo_bin);
 
     if is_nightly {
+        log::debug!("Building with nightly toolchain");
         cargo_cmd.arg("+nightly");
+    } else {
+        log::debug!("Building with stable toolchain");
     }
 
     cargo_cmd.arg("build");
@@ -20,6 +23,7 @@ pub(crate) fn build(
     if is_nightly {
         cargo_cmd.args(&["-Z", "build-std"]);
     }
+
 
     cargo_cmd
         .args(cargo_args)

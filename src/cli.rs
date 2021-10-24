@@ -15,6 +15,12 @@ struct BuildArgs {
     #[options(help = "show help information")]
     help: bool,
 
+    #[options(long = "macos", help = "macOS builds only")]
+    is_macos: bool,
+
+    #[options(long = "ios", help = "iOS builds only")]
+    is_ios: bool,
+
     #[options(free, help = "args to be passed to `cargo build` step")]
     cargo_args: Vec<String>,
 
@@ -50,6 +56,15 @@ struct PublishArgs {
 }
 
 #[derive(Debug, Options)]
+struct UpdateArgs {
+    #[options(help = "show help information")]
+    help: bool,
+
+    manifest_path: Option<PathBuf>,
+}
+
+
+#[derive(Debug, Options)]
 struct BundleArgs {
     #[options(help = "show help information")]
     help: bool,
@@ -63,6 +78,7 @@ enum Command {
     Build(BuildArgs),
     Bundle(BundleArgs),
     Publish(PublishArgs),
+    Update(UpdateArgs),
 }
 
 #[derive(Debug, Options)]
@@ -258,6 +274,25 @@ fn init(args: InitArgs) {
         .unwrap();
 }
 
+fn update(_args: UpdateArgs) {
+    let has_subtree = std::fs::read_dir("./crate").is_ok();
+
+    if !has_subtree {
+        println!("No crate found.");
+        std::process::exit(1);
+    }
+
+    std::process::Command::new("git")
+        .args(&["fetch", "crate", "main"])
+        .status()
+        .unwrap();
+
+    std::process::Command::new("git")
+        .args(&["subtree", "pull", "--prefix", "crate", "crate", "main", "--squash"])
+        .status()
+        .unwrap();
+}
+
 fn build(args: BuildArgs) {
     let has_subtree = std::fs::read_dir("./crate").is_ok();
 
@@ -282,73 +317,84 @@ fn build(args: BuildArgs) {
         cargo_args.push("--lib".into())
     }
 
-    std::fs::create_dir_all("./dist").unwrap();
-    for triple in IOS_TRIPLES {
-        std::fs::create_dir_all(format!("./dist/{}", triple)).unwrap();
-    }
-    for triple in MACOS_TRIPLES {
-        std::fs::create_dir_all(format!("./dist/{}", triple)).unwrap();
-    }
+    let dist_dir = if has_subtree {
+        Path::new("./dist").to_path_buf()
+    } else {
+        Path::new(&metadata.target_directory)
+            .parent()
+            .unwrap()
+            .join("dist")
+    };
+    std::fs::create_dir_all(&dist_dir).unwrap();
 
-    for triple in IOS_TRIPLES {
-        log::info!("Building for target '{}'...", triple);
+    let build_all = !args.is_ios && !args.is_macos;
+    let mut lib_paths = vec![];
 
-        crate::cargo::build(
-            &package_dir,
-            triple,
-            &cargo_args,
-            NIGHTLY_TRIPLES.contains(&triple),
-        );
-    }
+    if build_all || args.is_ios {
+        for triple in IOS_TRIPLES {
+            log::info!("Building for target '{}'...", triple);
+            std::fs::create_dir_all(format!("./dist/{}", triple)).unwrap();
 
-    for triple in MACOS_TRIPLES {
-        log::info!("Building for target '{}'...", triple);
+            if !crate::cargo::build(
+                &package_dir,
+                triple,
+                &cargo_args,
+                NIGHTLY_TRIPLES.contains(&triple),
+            )
+            .success()
+            {
+                std::process::exit(1);
+            }
 
-        crate::cargo::build(
-            &package_dir,
-            triple,
-            &cargo_args,
-            NIGHTLY_TRIPLES.contains(&triple),
-        );
-    }
-
-    for target in targets.iter() {
-        let lib_paths = IOS_TRIPLES
-            .iter()
-            .map(|x| {
-                (
-                    x,
-                    metadata
-                        .target_directory
-                        .join(x)
-                        .join("release")
-                        .join(format!("lib{}.a", target.name.replace("-", "_"))),
-                )
-            })
-            .chain(MACOS_TRIPLES.iter().map(|x| {
-                (
-                    x,
-                    metadata
-                        .target_directory
-                        .join(x)
-                        .join("release")
-                        .join(format!("lib{}.a", target.name.replace("-", "_"))),
-                )
-            }));
-        for (triple, path) in lib_paths {
-            let result = std::fs::copy(
-                &path,
-                format!(
-                    "./dist/{}/{}",
+            for target in &targets {
+                lib_paths.push((
                     triple,
-                    path.file_name().unwrap().to_string_lossy()
-                ),
-            );
-            match result {
-                Ok(_) => {}
-                Err(e) => {
-                    panic!("Error copying {:?}: {:?}", path, e);
-                }
+                    metadata
+                        .target_directory
+                        .join(triple)
+                        .join("release")
+                        .join(format!("lib{}.a", target.name.replace("-", "_"))),
+                ));
+            }
+        }
+    }
+
+    if build_all || args.is_macos {
+        for triple in MACOS_TRIPLES {
+            log::info!("Building for target '{}'...", triple);
+            std::fs::create_dir_all(format!("./dist/{}", triple)).unwrap();
+
+            if !crate::cargo::build(
+                &package_dir,
+                triple,
+                &cargo_args,
+                NIGHTLY_TRIPLES.contains(&triple),
+            )
+            .success()
+            {
+                std::process::exit(1);
+            }
+
+            for target in &targets {
+                lib_paths.push((
+                    triple,
+                    metadata
+                        .target_directory
+                        .join(triple)
+                        .join("release")
+                        .join(format!("lib{}.a", target.name.replace("-", "_"))),
+                ));
+            }
+        }
+    }
+
+    for (triple, path) in lib_paths {
+        let dest = dist_dir.join(triple).join(path.file_name().unwrap());
+        let result = std::fs::copy(&path, &dest);
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                panic!("Error copying {:?} -> {:?}: {:?}", path, dest, e);
             }
         }
     }
@@ -453,5 +499,6 @@ pub(crate) fn run(args: Vec<String>) {
         Command::Build(args) => build(args),
         Command::Publish(args) => publish(args),
         Command::Bundle(args) => bundle(args),
+        Command::Update(args) => update(args),
     }
 }

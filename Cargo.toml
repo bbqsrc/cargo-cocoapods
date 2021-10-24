@@ -1,6 +1,6 @@
 [package]
 name = "cargo-cocoapods"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Brendan Molloy <brendan@bbqsrc.net>"]
 repository = "https://github.com/bbqsrc/cargo-cocoapods"
 documentation = "https://docs.rs/cargo-cocoapods"
@@ -15,7 +15,8 @@ categories = [
     "development-tools::cargo-plugins",
     "development-tools::build-utils"
 ]
-edition = "2018"
+edition = "2021"
+rust-version = "1.56.0"
 
 [[bin]]
 name = "cargo-pod"
@@ -28,7 +29,7 @@ maintenance = { status = "actively-developed" }
 gumdrop = "0.8.0"
 toml = "0.5.6"
 serde = { version = "1.0.114", features = ["derive"] }
-pathos = "0.3.0-pre.2"
+pathos = "0.3.0-pre.4"
 env_logger = "0.7.1"
 log = "0.4.11"
 cargo_metadata = "0.10.0"
