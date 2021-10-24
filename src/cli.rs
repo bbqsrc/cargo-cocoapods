@@ -8,7 +8,7 @@ use gumdrop::{Options, ParsingStyle};
 use heck::CamelCase;
 use std::io::Write;
 
-use crate::{podspec::Podspec, IOS_TRIPLES, MACOS_TRIPLES, NIGHTLY_TRIPLES};
+use crate::{podspec::Podspec, IOS_TRIPLES, MACOS_TRIPLES};
 
 #[derive(Debug, Options)]
 struct BuildArgs {
@@ -62,7 +62,6 @@ struct UpdateArgs {
 
     manifest_path: Option<PathBuf>,
 }
-
 
 #[derive(Debug, Options)]
 struct BundleArgs {
@@ -288,7 +287,9 @@ fn update(_args: UpdateArgs) {
         .unwrap();
 
     std::process::Command::new("git")
-        .args(&["subtree", "pull", "--prefix", "crate", "crate", "main", "--squash"])
+        .args(&[
+            "subtree", "pull", "--prefix", "crate", "crate", "main", "--squash",
+        ])
         .status()
         .unwrap();
 }
@@ -335,14 +336,7 @@ fn build(args: BuildArgs) {
             log::info!("Building for target '{}'...", triple);
             std::fs::create_dir_all(format!("./dist/{}", triple)).unwrap();
 
-            if !crate::cargo::build(
-                &package_dir,
-                triple,
-                &cargo_args,
-                NIGHTLY_TRIPLES.contains(&triple),
-            )
-            .success()
-            {
+            if !crate::cargo::build(&package_dir, triple, &cargo_args, false).success() {
                 std::process::exit(1);
             }
 
@@ -364,14 +358,7 @@ fn build(args: BuildArgs) {
             log::info!("Building for target '{}'...", triple);
             std::fs::create_dir_all(format!("./dist/{}", triple)).unwrap();
 
-            if !crate::cargo::build(
-                &package_dir,
-                triple,
-                &cargo_args,
-                NIGHTLY_TRIPLES.contains(&triple),
-            )
-            .success()
-            {
+            if !crate::cargo::build(&package_dir, triple, &cargo_args, false).success() {
                 std::process::exit(1);
             }
 

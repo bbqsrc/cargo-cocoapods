@@ -24,7 +24,6 @@ pub(crate) fn build(
         cargo_cmd.args(&["-Z", "build-std"]);
     }
 
-
     cargo_cmd
         .args(cargo_args)
         .arg("--target")
