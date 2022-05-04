@@ -4,6 +4,7 @@ use std::{
 };
 
 use cargo_metadata::{Metadata, MetadataCommand, Package, Target};
+use glob::glob;
 use gumdrop::{Options, ParsingStyle};
 use heck::CamelCase;
 use std::io::Write;
@@ -72,12 +73,23 @@ struct BundleArgs {
 }
 
 #[derive(Debug, Options)]
+struct ExampleArgs {
+    #[options(help = "show help information")]
+    help: bool,
+
+    #[options(free)]
+    example_args: Vec<String>,
+}
+
+#[derive(Debug, Options)]
 enum Command {
     Init(InitArgs),
     Build(BuildArgs),
     Bundle(BundleArgs),
     Publish(PublishArgs),
     Update(UpdateArgs),
+    #[options(help = "Run example swift (if present)")]
+    Example(ExampleArgs),
 }
 
 #[derive(Debug, Options)]
@@ -213,10 +225,27 @@ fn init_subtree(args: &InitArgs) {
         .args(&["remote", "add", "-f", "crate", &subtree_url])
         .status()
         .unwrap();
+
     std::process::Command::new("git")
         .args(&[
             "subtree", "add", "--prefix", "crate", "crate", &branch, "--squash",
         ])
+        .status()
+        .unwrap();
+
+    std::fs::write(".crate-remote", subtree_url).unwrap();
+
+    std::process::Command::new("git")
+        .args(&["add", ".crate-remote"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .unwrap();
+
+    std::process::Command::new("git")
+        .args(&["commit", "-m", "Add .crate-remote"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .status()
         .unwrap();
 }
@@ -281,14 +310,17 @@ fn update(_args: UpdateArgs) {
         std::process::exit(1);
     }
 
-    std::process::Command::new("git")
-        .args(&["fetch", "crate", "main"])
-        .status()
-        .unwrap();
+    let crate_remote = std::fs::read_to_string(".crate-remote").unwrap();
 
     std::process::Command::new("git")
         .args(&[
-            "subtree", "pull", "--prefix", "crate", "crate", "main", "--squash",
+            "subtree",
+            "pull",
+            "--prefix",
+            "crate",
+            &*crate_remote.trim(),
+            "main",
+            "--squash",
         ])
         .status()
         .unwrap();
@@ -417,6 +449,75 @@ fn publish(_args: PublishArgs) {
     todo!()
 }
 
+fn example(args: ExampleArgs) {
+    // swiftc example/**/*.swift src/**/*.swift -import-objc-header src/DivvunSpell/divvunspell.h \
+    // -L dist/aarch64-apple-darwin -ldivvunspell -o test
+    let tempdir = tempfile::tempdir().unwrap();
+
+    let dist_dir = format!("dist/{}-apple-darwin", std::env::consts::ARCH);
+
+    let headers = glob::glob("src/**/*.h")
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|x| {
+            vec![
+                "-import-objc-header".to_string(),
+                x.to_string_lossy().to_string(),
+            ]
+        })
+        .flatten()
+        .collect::<Vec<_>>();
+
+    let libs = glob(&format!("{}/lib*.a", &dist_dir))
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|x| {
+            format!(
+                "-l{}",
+                x.file_stem()
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .chars()
+                    .skip(3)
+                    .collect::<String>()
+            )
+        })
+        .collect::<Vec<_>>();
+
+    log::debug!("Headers: {:?}", &headers);
+    log::debug!("Libs: {:?}", &libs);
+
+    let example_bin = tempdir.path().join("example");
+
+    let swift_example = glob("example/**/*.swift")
+        .unwrap()
+        .filter_map(Result::ok)
+        .collect::<Vec<PathBuf>>();
+    let swift_src = glob("src/**/*.swift")
+        .unwrap()
+        .filter_map(Result::ok)
+        .collect::<Vec<_>>();
+
+    let mut cmd = std::process::Command::new("swiftc");
+    cmd.args(swift_example)
+        .args(swift_src)
+        .args(headers)
+        .arg("-L")
+        .arg(dist_dir)
+        .args(libs)
+        .arg("-o")
+        .arg(&example_bin);
+
+    log::trace!("Calling: {:?}", &cmd);
+    cmd.status().unwrap();
+
+    std::process::Command::new(example_bin)
+        .args(args.example_args)
+        .status()
+        .unwrap();
+}
+
 fn print_help(args: &Args) {
     let mut command = args as &dyn Options;
     let mut command_str = String::new();
@@ -487,5 +588,6 @@ pub(crate) fn run(args: Vec<String>) {
         Command::Publish(args) => publish(args),
         Command::Bundle(args) => bundle(args),
         Command::Update(args) => update(args),
+        Command::Example(args) => example(args),
     }
 }
