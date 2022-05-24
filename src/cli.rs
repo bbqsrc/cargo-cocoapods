@@ -62,7 +62,10 @@ struct PublishArgs {
     #[options(help = "URL to repository; will use git remote origin if not given")]
     url: Option<String>,
 
-    #[options(no_short, help = "Override tag; uses data in .podspec file if not given")]
+    #[options(
+        no_short,
+        help = "Override tag; uses data in .podspec file if not given"
+    )]
     tag: Option<String>,
 
     #[options(help = "Overwrite tag if present")]
@@ -459,6 +462,10 @@ fn bundle(_args: BundleArgs) {
 }
 
 fn publish(_args: PublishArgs) {
+    if _args.username.is_none() || _args.token.is_none() {
+        log::error!("You must provide both a GitHub username and access token");
+        std::process::exit(1);
+    }
     todo!()
 }
 
