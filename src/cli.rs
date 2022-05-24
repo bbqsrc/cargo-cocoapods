@@ -53,7 +53,16 @@ struct PublishArgs {
     #[options(help = "show help information")]
     help: bool,
 
-    #[options(help = "Override tag; uses data in .podspec file if not given")]
+    #[options(help = "GitHub username")]
+    username: Option<String>,
+
+    #[options(help = "GitHub Personal Access Token")]
+    token: Option<String>,
+
+    #[options(help = "URL to repository; will use git remote origin if not given")]
+    url: Option<String>,
+
+    #[options(no_short, help = "Override tag; uses data in .podspec file if not given")]
     tag: Option<String>,
 
     #[options(help = "Overwrite tag if present")]
