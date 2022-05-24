@@ -53,7 +53,11 @@ struct PublishArgs {
     #[options(help = "show help information")]
     help: bool,
 
-    manifest_path: Option<PathBuf>,
+    #[options(help = "Override tag; uses data in .podspec file if not given")]
+    tag: Option<String>,
+
+    #[options(help = "Overwrite tag if present")]
+    force: bool,
 }
 
 #[derive(Debug, Options)]
