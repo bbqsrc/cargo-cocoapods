@@ -3,6 +3,7 @@ use std::{
     process::{exit, Stdio},
 };
 
+use base64::{encode};
 use cargo_metadata::{Metadata, MetadataCommand, Package, Target};
 use glob::glob;
 use gumdrop::{Options, ParsingStyle};
@@ -466,6 +467,9 @@ fn publish(_args: PublishArgs) {
         log::error!("You must provide both a GitHub username and access token");
         std::process::exit(1);
     }
+    println!("{:?}", _args);
+    let auth_token = encode(format!("{}:{}",_args.username.unwrap(),_args.token.unwrap()));
+    println!("{:?}", auth_token);
     todo!()
 }
 
