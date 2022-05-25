@@ -548,9 +548,24 @@ async fn publish(_args: PublishArgs) {
         None => 0,
     };
 
-    if release_id != 0 && !_args.force {
-        log::error!("Tag {} already exists at release {}", tag, relevant_release.get(0).unwrap().url);
-        std::process::exit(1);
+    if release_id != 0 {
+        if _args.force {
+            api_client
+                .delete(format!(
+                    "{}repos/{}/releases/{}",
+                    api_url, repo_tail, release_id
+                ))
+                .send()
+                .await
+                .unwrap();
+        } else {
+            log::error!(
+                "Tag {} already exists at release {}",
+                tag,
+                relevant_release.get(0).unwrap().url
+            );
+            std::process::exit(1);
+        }
     }
 
     // todo!()
