@@ -8,7 +8,7 @@ use glob::glob;
 use gumdrop::{Options, ParsingStyle};
 use heck::CamelCase;
 use reqwest;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::io::Write;
 
 use crate::{podspec::Podspec, IOS_TRIPLES, MACOS_TRIPLES};
@@ -467,6 +467,11 @@ struct ReleaseResponse {
     tag_name: String,
 }
 
+#[derive(Debug, Serialize)]
+struct ReleaseRequest {
+    tag_name: String,
+}
+
 async fn publish(_args: PublishArgs) {
     if _args.token.is_none() {
         log::error!("You must provide a GitHub access token");
@@ -567,6 +572,18 @@ async fn publish(_args: PublishArgs) {
             std::process::exit(1);
         }
     }
+
+    let args = ReleaseRequest { tag_name: tag };
+    let new_release: ReleaseResponse = api_client
+        .post(format!("{}repos/{}/releases", api_url, repo_tail))
+        .json(&args)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    println!("{:?}", new_release);
 
     // todo!()
 }
