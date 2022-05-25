@@ -493,7 +493,22 @@ fn publish(_args: PublishArgs) {
         .to_string()
     };
     log::debug!("Derived repo URL {:?}", repo_url);
-    println!("{:?}", repo_url);
+
+    let repo_tail: String = {
+        let s = repo_url.as_str();
+        let git_tail = if s.starts_with("git@github") {
+            let (_, tail) = s.split_once(":").unwrap();
+            tail
+        } else if s.starts_with("https://github.com/") {
+            let (_, tail) = s.split_at("https://github.com/".len());
+            tail
+        } else {
+            panic!("Could not parse the repo url {:?}", repo_url);
+        };
+        let (head, _) = git_tail.split_at(git_tail.len() - 4);
+        head.to_string()
+    };
+    log::debug!("Derived repo tail {:?}", repo_tail);
 
 
 
