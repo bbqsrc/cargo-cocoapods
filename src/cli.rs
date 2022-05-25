@@ -463,14 +463,21 @@ fn bundle(_args: BundleArgs) {
 #[derive(Debug, Deserialize)]
 struct ReleaseResponse {
     url: String,
+    id: u32,
+    tag_name: String,
 }
 
 async fn publish(_args: PublishArgs) {
     if _args.token.is_none() {
-        log::error!("You must provide both a GitHub access token");
+        log::error!("You must provide a GitHub access token");
+        std::process::exit(1);
+    }
+    if _args.tag.is_none() {
+        log::error!("You must provide a tag name");
         std::process::exit(1);
     }
     println!("{:?}", _args);
+    let tag = _args.tag.unwrap();
 
     let api_url: &str = "https://api.github.com/";
     let mut header_map = reqwest::header::HeaderMap::new();
@@ -479,7 +486,10 @@ async fn publish(_args: PublishArgs) {
             .unwrap();
     auth_value.set_sensitive(true);
     header_map.insert(reqwest::header::AUTHORIZATION, auth_value);
-    header_map.insert("user-agent", reqwest::header::HeaderValue::from_static("cargo-cocoapods"));
+    header_map.insert(
+        "user-agent",
+        reqwest::header::HeaderValue::from_static("cargo-cocoapods"),
+    );
     let api_client = reqwest::Client::builder()
         .default_headers(header_map)
         .build()
@@ -522,8 +532,26 @@ async fn publish(_args: PublishArgs) {
         .get(format!("{}repos/{}/releases", api_url, repo_tail))
         .send()
         .await
-        .unwrap().json().await.unwrap();
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     println!("{:?}", current_releases);
+
+    let relevant_release: Vec<ReleaseResponse> = current_releases
+        .into_iter()
+        .filter(|r| r.tag_name == tag)
+        .collect();
+
+    let release_id: u32 = match relevant_release.get(0) {
+        Some(release) => release.id,
+        None => 0,
+    };
+
+    if release_id != 0 && !_args.force {
+        log::error!("Tag {} already exists at release {}", tag, relevant_release.get(0).unwrap().url);
+        std::process::exit(1);
+    }
 
     // todo!()
 }
