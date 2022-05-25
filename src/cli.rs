@@ -3,11 +3,12 @@ use std::{
     process::{exit, Stdio},
 };
 
-use base64::{encode};
+use base64::encode;
 use cargo_metadata::{Metadata, MetadataCommand, Package, Target};
 use glob::glob;
 use gumdrop::{Options, ParsingStyle};
 use heck::CamelCase;
+use reqwest;
 use std::io::Write;
 
 use crate::{podspec::Podspec, IOS_TRIPLES, MACOS_TRIPLES};
@@ -468,9 +469,23 @@ fn publish(_args: PublishArgs) {
         std::process::exit(1);
     }
     println!("{:?}", _args);
-    let auth_token = encode(format!("{}:{}",_args.username.unwrap(),_args.token.unwrap()));
+    let auth_token = encode(format!(
+        "{}:{}",
+        _args.username.unwrap(),
+        _args.token.unwrap()
+    ));
     println!("{:?}", auth_token);
-    todo!()
+
+    let mut auth_header = reqwest::header::HeaderMap::new();
+    let mut auth_value = reqwest::header::HeaderValue::from_str(auth_token.as_str()).unwrap();
+    auth_value.set_sensitive(true);
+    auth_header.insert(reqwest::header::AUTHORIZATION, auth_value);
+    let api_client = reqwest::Client::builder()
+        .default_headers(auth_header)
+        .build()
+        .unwrap();
+    println!("{:?}", api_client);
+    // todo!()
 }
 
 fn example(args: ExampleArgs) {
