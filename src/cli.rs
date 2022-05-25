@@ -459,21 +459,23 @@ fn bundle(_args: BundleArgs) {
         .unwrap();
 }
 
-fn publish(_args: PublishArgs) {
+async fn publish(_args: PublishArgs) {
     if _args.token.is_none() {
         log::error!("You must provide both a GitHub access token");
         std::process::exit(1);
     }
     println!("{:?}", _args);
 
-    let mut auth_header = reqwest::header::HeaderMap::new();
+    let api_url: &str = "https://api.github.com/";
+    let mut header_map = reqwest::header::HeaderMap::new();
     let mut auth_value =
         reqwest::header::HeaderValue::from_str(format!("token {}", _args.token.unwrap()).as_str())
             .unwrap();
     auth_value.set_sensitive(true);
-    auth_header.insert(reqwest::header::AUTHORIZATION, auth_value);
+    header_map.insert(reqwest::header::AUTHORIZATION, auth_value);
+    header_map.insert("user-agent", reqwest::header::HeaderValue::from_static("cargo-cocoapods"));
     let api_client = reqwest::Client::builder()
-        .default_headers(auth_header)
+        .default_headers(header_map)
         .build()
         .unwrap();
     println!("{:?}", api_client);
@@ -510,7 +512,12 @@ fn publish(_args: PublishArgs) {
     };
     log::debug!("Derived repo tail {:?}", repo_tail);
 
-
+    let current_releases = api_client
+        .get(format!("{}repos/{}/releases", api_url, repo_tail))
+        .send()
+        .await
+        .unwrap();
+    println!("{:?}", current_releases);
 
     // todo!()
 }
@@ -636,7 +643,7 @@ fn parse_args_or_exit(args: &[&str]) -> Args {
     args
 }
 
-pub(crate) fn run(args: Vec<String>) {
+pub(crate) async fn run(args: Vec<String>) {
     log::trace!("Args: {:?}", args);
 
     let args = parse_args_or_exit(&args.iter().map(|x| &**x).collect::<Vec<_>>());
@@ -651,7 +658,7 @@ pub(crate) fn run(args: Vec<String>) {
     match command {
         Command::Init(args) => init(args),
         Command::Build(args) => build(args),
-        Command::Publish(args) => publish(args),
+        Command::Publish(args) => publish(args).await,
         Command::Bundle(args) => bundle(args),
         Command::Update(args) => update(args),
         Command::Example(args) => example(args),

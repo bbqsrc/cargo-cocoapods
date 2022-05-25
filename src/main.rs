@@ -1,5 +1,6 @@
 use std::env;
 use std::process::exit;
+use tokio;
 
 mod cargo;
 mod cli;
@@ -18,7 +19,8 @@ pub(crate) static IOS_TRIPLES: &[&str] = &[
     "aarch64-apple-ios-sim",
 ];
 
-fn main() {
+#[tokio::main]
+async fn main() {
     env_logger::from_env(env_logger::Env::default().default_filter_or("trace")).init();
 
     if env::var("CARGO").is_err() {
@@ -28,5 +30,5 @@ fn main() {
 
     let args = std::env::args().skip(2).collect::<Vec<_>>();
 
-    cli::run(args);
+    cli::run(args).await;
 }
