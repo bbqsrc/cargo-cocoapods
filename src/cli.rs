@@ -485,7 +485,6 @@ async fn publish(_args: PublishArgs) {
         log::error!("You must provide a tag name");
         std::process::exit(1);
     }
-    println!("{:?}", _args);
     let tag = _args.tag.unwrap();
 
     let api_url: &str = "https://api.github.com/";
@@ -503,7 +502,6 @@ async fn publish(_args: PublishArgs) {
         .default_headers(header_map)
         .build()
         .unwrap();
-    println!("{:?}", api_client);
 
     let repo_url: String = if let Some(u) = _args.url {
         u
@@ -545,7 +543,6 @@ async fn publish(_args: PublishArgs) {
         .json()
         .await
         .unwrap();
-    println!("{:?}", current_releases);
 
     let relevant_release: Vec<ReleaseResponse> = current_releases
         .into_iter()
@@ -587,14 +584,12 @@ async fn publish(_args: PublishArgs) {
         .json()
         .await
         .unwrap();
-    println!("{:?}", new_release);
 
     let mut asset_data: Vec<u8> = Vec::new();
     File::open("cargo-pod.tgz")
         .unwrap()
         .read_to_end(&mut asset_data)
         .unwrap();
-    println!("{:?}", asset_data);
     let asset_request = api_client
         .post({
             let (head, _) = new_release.upload_url.as_str().split_once("{").unwrap();
@@ -606,9 +601,6 @@ async fn publish(_args: PublishArgs) {
         .send()
         .await
         .unwrap();
-    println!("{:?}", asset_request);
-
-    // todo!()
 }
 
 fn example(args: ExampleArgs) {
