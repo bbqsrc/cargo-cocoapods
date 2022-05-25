@@ -9,7 +9,10 @@ use gumdrop::{Options, ParsingStyle};
 use heck::CamelCase;
 use reqwest;
 use serde::{Deserialize, Serialize};
-use std::io::Write;
+use std::{
+    fs::File,
+    io::{Read, Write},
+};
 
 use crate::{podspec::Podspec, IOS_TRIPLES, MACOS_TRIPLES};
 
@@ -463,6 +466,7 @@ fn bundle(_args: BundleArgs) {
 #[derive(Debug, Deserialize)]
 struct ReleaseResponse {
     url: String,
+    upload_url: String,
     id: u32,
     tag_name: String,
 }
@@ -584,6 +588,25 @@ async fn publish(_args: PublishArgs) {
         .await
         .unwrap();
     println!("{:?}", new_release);
+
+    let mut asset_data: Vec<u8> = Vec::new();
+    File::open("cargo-pod.tgz")
+        .unwrap()
+        .read_to_end(&mut asset_data)
+        .unwrap();
+    println!("{:?}", asset_data);
+    let asset_request = api_client
+        .post({
+            let (head, _) = new_release.upload_url.as_str().split_once("{").unwrap();
+            head.to_string()
+        })
+        .body(asset_data)
+        .query(&[("name", "cargo-pod.tgz")])
+        .header("content-type", "application/x-gtar")
+        .send()
+        .await
+        .unwrap();
+    println!("{:?}", asset_request);
 
     // todo!()
 }
