@@ -590,7 +590,7 @@ async fn publish(_args: PublishArgs) {
         .unwrap()
         .read_to_end(&mut asset_data)
         .unwrap();
-    let asset_request = api_client
+    api_client
         .post({
             let (head, _) = new_release.upload_url.as_str().split_once("{").unwrap();
             head.to_string()
