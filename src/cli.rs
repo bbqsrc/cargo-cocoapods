@@ -3,7 +3,6 @@ use std::{
     process::{exit, Stdio},
 };
 
-use base64::encode;
 use cargo_metadata::{Metadata, MetadataCommand, Package, Target};
 use glob::glob;
 use gumdrop::{Options, ParsingStyle};
@@ -54,9 +53,6 @@ struct InitArgs {
 struct PublishArgs {
     #[options(help = "show help information")]
     help: bool,
-
-    #[options(help = "GitHub username")]
-    username: Option<String>,
 
     #[options(help = "GitHub Personal Access Token")]
     token: Option<String>,
@@ -464,20 +460,16 @@ fn bundle(_args: BundleArgs) {
 }
 
 fn publish(_args: PublishArgs) {
-    if _args.username.is_none() || _args.token.is_none() {
-        log::error!("You must provide both a GitHub username and access token");
+    if _args.token.is_none() {
+        log::error!("You must provide both a GitHub access token");
         std::process::exit(1);
     }
     println!("{:?}", _args);
-    let auth_token = encode(format!(
-        "{}:{}",
-        _args.username.unwrap(),
-        _args.token.unwrap()
-    ));
-    println!("{:?}", auth_token);
 
     let mut auth_header = reqwest::header::HeaderMap::new();
-    let mut auth_value = reqwest::header::HeaderValue::from_str(auth_token.as_str()).unwrap();
+    let mut auth_value =
+        reqwest::header::HeaderValue::from_str(format!("token {}", _args.token.unwrap()).as_str())
+            .unwrap();
     auth_value.set_sensitive(true);
     auth_header.insert(reqwest::header::AUTHORIZATION, auth_value);
     let api_client = reqwest::Client::builder()
