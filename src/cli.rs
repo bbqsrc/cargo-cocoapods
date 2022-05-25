@@ -477,6 +477,26 @@ fn publish(_args: PublishArgs) {
         .build()
         .unwrap();
     println!("{:?}", api_client);
+
+    let repo_url: String = if let Some(u) = _args.url {
+        u
+    } else {
+        String::from_utf8(
+            std::process::Command::new("git")
+                .args(&["remote", "get-url", "origin"])
+                .output()
+                .unwrap()
+                .stdout,
+        )
+        .unwrap()
+        .trim()
+        .to_string()
+    };
+    log::debug!("Derived repo URL {:?}", repo_url);
+    println!("{:?}", repo_url);
+
+
+
     // todo!()
 }
 
