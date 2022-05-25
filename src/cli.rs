@@ -8,6 +8,7 @@ use glob::glob;
 use gumdrop::{Options, ParsingStyle};
 use heck::CamelCase;
 use reqwest;
+use serde::Deserialize;
 use std::io::Write;
 
 use crate::{podspec::Podspec, IOS_TRIPLES, MACOS_TRIPLES};
@@ -459,6 +460,11 @@ fn bundle(_args: BundleArgs) {
         .unwrap();
 }
 
+#[derive(Debug, Deserialize)]
+struct ReleaseResponse {
+    url: String,
+}
+
 async fn publish(_args: PublishArgs) {
     if _args.token.is_none() {
         log::error!("You must provide both a GitHub access token");
@@ -512,11 +518,11 @@ async fn publish(_args: PublishArgs) {
     };
     log::debug!("Derived repo tail {:?}", repo_tail);
 
-    let current_releases = api_client
+    let current_releases: Vec<ReleaseResponse> = api_client
         .get(format!("{}repos/{}/releases", api_url, repo_tail))
         .send()
         .await
-        .unwrap();
+        .unwrap().json().await.unwrap();
     println!("{:?}", current_releases);
 
     // todo!()
