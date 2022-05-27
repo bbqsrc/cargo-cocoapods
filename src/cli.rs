@@ -7,7 +7,12 @@ use cargo_metadata::{Metadata, MetadataCommand, Package, Target};
 use glob::glob;
 use gumdrop::{Options, ParsingStyle};
 use heck::CamelCase;
-use std::io::Write;
+use reqwest;
+use serde::{Deserialize, Serialize};
+use std::{
+    fs::File,
+    io::{Read, Write},
+};
 
 use crate::{podspec::Podspec, IOS_TRIPLES, MACOS_TRIPLES};
 
@@ -53,7 +58,20 @@ struct PublishArgs {
     #[options(help = "show help information")]
     help: bool,
 
-    manifest_path: Option<PathBuf>,
+    #[options(help = "GitHub Personal Access Token")]
+    token: Option<String>,
+
+    #[options(help = "URL to repository; will use git remote origin if not given")]
+    url: Option<String>,
+
+    #[options(
+        no_short,
+        help = "Override tag; uses data in .podspec file if not given"
+    )]
+    tag: Option<String>,
+
+    #[options(help = "Overwrite tag if present")]
+    force: bool,
 }
 
 #[derive(Debug, Options)]
@@ -445,8 +463,144 @@ fn bundle(_args: BundleArgs) {
         .unwrap();
 }
 
-fn publish(_args: PublishArgs) {
-    todo!()
+#[derive(Debug, Deserialize)]
+struct ReleaseResponse {
+    url: String,
+    upload_url: String,
+    id: u32,
+    tag_name: String,
+}
+
+#[derive(Debug, Serialize)]
+struct ReleaseRequest {
+    tag_name: String,
+}
+
+async fn publish(_args: PublishArgs) {
+    if _args.token.is_none() {
+        log::error!("You must provide a GitHub access token");
+        std::process::exit(1);
+    }
+    if _args.tag.is_none() {
+        log::error!("You must provide a tag name");
+        std::process::exit(1);
+    }
+    let tag = _args.tag.unwrap();
+
+    let api_url: &str = "https://api.github.com/";
+    let mut header_map = reqwest::header::HeaderMap::new();
+    let mut auth_value =
+        reqwest::header::HeaderValue::from_str(format!("token {}", _args.token.unwrap()).as_str())
+            .unwrap();
+    auth_value.set_sensitive(true);
+    header_map.insert(reqwest::header::AUTHORIZATION, auth_value);
+    header_map.insert(
+        "user-agent",
+        reqwest::header::HeaderValue::from_static("cargo-cocoapods"),
+    );
+    let api_client = reqwest::Client::builder()
+        .default_headers(header_map)
+        .build()
+        .unwrap();
+
+    let repo_url: String = if let Some(u) = _args.url {
+        u
+    } else {
+        String::from_utf8(
+            std::process::Command::new("git")
+                .args(&["remote", "get-url", "origin"])
+                .output()
+                .unwrap()
+                .stdout,
+        )
+        .unwrap()
+        .trim()
+        .to_string()
+    };
+    log::debug!("Derived repo URL {:?}", repo_url);
+
+    let repo_tail: String = {
+        let s = repo_url.as_str();
+        let git_tail = if s.starts_with("git@github") {
+            let (_, tail) = s.split_once(":").unwrap();
+            tail
+        } else if s.starts_with("https://github.com/") {
+            let (_, tail) = s.split_at("https://github.com/".len());
+            tail
+        } else {
+            panic!("Could not parse the repo url {:?}", repo_url);
+        };
+        let (head, _) = git_tail.split_at(git_tail.len() - 4);
+        head.to_string()
+    };
+    log::debug!("Derived repo tail {:?}", repo_tail);
+
+    let current_releases: Vec<ReleaseResponse> = api_client
+        .get(format!("{}repos/{}/releases", api_url, repo_tail))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+
+    let relevant_release: Vec<ReleaseResponse> = current_releases
+        .into_iter()
+        .filter(|r| r.tag_name == tag)
+        .collect();
+
+    let release_id: u32 = match relevant_release.get(0) {
+        Some(release) => release.id,
+        None => 0,
+    };
+
+    if release_id != 0 {
+        if _args.force {
+            api_client
+                .delete(format!(
+                    "{}repos/{}/releases/{}",
+                    api_url, repo_tail, release_id
+                ))
+                .send()
+                .await
+                .unwrap();
+        } else {
+            log::error!(
+                "Tag {} already exists at release {}",
+                tag,
+                relevant_release.get(0).unwrap().url
+            );
+            std::process::exit(1);
+        }
+    }
+
+    let args = ReleaseRequest { tag_name: tag };
+    let new_release: ReleaseResponse = api_client
+        .post(format!("{}repos/{}/releases", api_url, repo_tail))
+        .json(&args)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+
+    let mut asset_data: Vec<u8> = Vec::new();
+    File::open("cargo-pod.tgz")
+        .unwrap()
+        .read_to_end(&mut asset_data)
+        .unwrap();
+    api_client
+        .post({
+            let (head, _) = new_release.upload_url.as_str().split_once("{").unwrap();
+            head.to_string()
+        })
+        .body(asset_data)
+        .query(&[("name", "cargo-pod.tgz")])
+        .header("content-type", "application/x-gtar")
+        .send()
+        .await
+        .unwrap();
 }
 
 fn example(args: ExampleArgs) {
@@ -570,7 +724,7 @@ fn parse_args_or_exit(args: &[&str]) -> Args {
     args
 }
 
-pub(crate) fn run(args: Vec<String>) {
+pub(crate) async fn run(args: Vec<String>) {
     log::trace!("Args: {:?}", args);
 
     let args = parse_args_or_exit(&args.iter().map(|x| &**x).collect::<Vec<_>>());
@@ -585,7 +739,7 @@ pub(crate) fn run(args: Vec<String>) {
     match command {
         Command::Init(args) => init(args),
         Command::Build(args) => build(args),
-        Command::Publish(args) => publish(args),
+        Command::Publish(args) => publish(args).await,
         Command::Bundle(args) => bundle(args),
         Command::Update(args) => update(args),
         Command::Example(args) => example(args),
