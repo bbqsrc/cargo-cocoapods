@@ -476,21 +476,21 @@ struct ReleaseRequest {
     tag_name: String,
 }
 
-async fn publish(_args: PublishArgs) {
-    if _args.token.is_none() {
+async fn publish(args: PublishArgs) {
+    if args.token.is_none() {
         log::error!("You must provide a GitHub access token");
         std::process::exit(1);
     }
-    if _args.tag.is_none() {
+    if args.tag.is_none() {
         log::error!("You must provide a tag name");
         std::process::exit(1);
     }
-    let tag = _args.tag.unwrap();
+    let tag = args.tag.unwrap();
 
     let api_url: &str = "https://api.github.com/";
     let mut header_map = reqwest::header::HeaderMap::new();
     let mut auth_value =
-        reqwest::header::HeaderValue::from_str(format!("token {}", _args.token.unwrap()).as_str())
+        reqwest::header::HeaderValue::from_str(format!("token {}", args.token.unwrap()).as_str())
             .unwrap();
     auth_value.set_sensitive(true);
     header_map.insert(reqwest::header::AUTHORIZATION, auth_value);
@@ -503,7 +503,7 @@ async fn publish(_args: PublishArgs) {
         .build()
         .unwrap();
 
-    let repo_url: String = if let Some(u) = _args.url {
+    let repo_url: String = if let Some(u) = args.url {
         u
     } else {
         String::from_utf8(
@@ -535,6 +535,8 @@ async fn publish(_args: PublishArgs) {
     };
     log::debug!("Derived repo tail {:?}", repo_tail);
 
+    log::info!("Getting current releases...");
+
     let current_releases: Vec<ReleaseResponse> = api_client
         .get(format!("{}repos/{}/releases", api_url, repo_tail))
         .send()
@@ -555,7 +557,8 @@ async fn publish(_args: PublishArgs) {
     };
 
     if release_id != 0 {
-        if _args.force {
+        if args.force {
+            log::info!("Deleting release...");
             api_client
                 .delete(format!(
                     "{}repos/{}/releases/{}",
@@ -575,6 +578,7 @@ async fn publish(_args: PublishArgs) {
     }
 
     let args = ReleaseRequest { tag_name: tag };
+    log::info!("Creating new release...");
     let new_release: ReleaseResponse = api_client
         .post(format!("{}repos/{}/releases", api_url, repo_tail))
         .json(&args)
@@ -590,6 +594,8 @@ async fn publish(_args: PublishArgs) {
         .unwrap()
         .read_to_end(&mut asset_data)
         .unwrap();
+
+    log::info!("Uploading cargo-pod.tgz...");
     api_client
         .post({
             let (head, _) = new_release.upload_url.as_str().split_once("{").unwrap();
