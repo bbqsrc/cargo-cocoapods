@@ -30,6 +30,9 @@ struct BuildArgs {
     #[options(free, help = "args to be passed to `cargo build` step")]
     cargo_args: Vec<String>,
 
+    #[options(long = "xcframework", help = "Builds an .xcframework")]
+    xcframework: bool,
+
     manifest_path: Option<PathBuf>,
 }
 
@@ -434,6 +437,83 @@ fn build(args: BuildArgs) {
                 panic!("Error copying {:?} -> {:?}: {:?}", path, dest, e);
             }
         }
+    }
+
+    if args.xcframework {
+        let tmpdir = tempfile::tempdir().unwrap();
+        let mut paths = vec![];
+
+        for target in &targets {
+            if build_all || args.is_macos {
+                paths.push(PathBuf::from(format!(
+                    "dist/aarch64-apple-ios/lib{}.a",
+                    target.name.replace("-", "_")
+                )));
+
+                let output_path = tmpdir.path().join("mac");
+                std::fs::create_dir_all(&output_path).unwrap();
+
+                let output_path = output_path
+                    .join(format!("lib{}", target.name.replace("-", "_")))
+                    .with_extension("a");
+
+                std::process::Command::new("lipo")
+                    .arg("-create")
+                    .arg(format!(
+                        "dist/aarch64-apple-darwin/lib{}.a",
+                        target.name.replace("-", "_")
+                    ))
+                    .arg(format!(
+                        "dist/x86_64-apple-darwin/lib{}.a",
+                        target.name.replace("-", "_")
+                    ))
+                    .arg("-output")
+                    .arg(&output_path)
+                    .output()
+                    .unwrap();
+
+                paths.push(output_path);
+            }
+
+            if build_all || args.is_ios {
+                let output_path = tmpdir.path().join("ios-sim");
+                std::fs::create_dir_all(&output_path).unwrap();
+
+                let output_path = output_path
+                    .join(format!("lib{}", target.name.replace("-", "_")))
+                    .with_extension("a");
+
+                std::process::Command::new("lipo")
+                    .arg("-create")
+                    .arg(format!(
+                        "dist/aarch64-apple-ios-sim/lib{}.a",
+                        target.name.replace("-", "_")
+                    ))
+                    .arg(format!(
+                        "dist/x86_64-apple-ios/lib{}.a",
+                        target.name.replace("-", "_")
+                    ))
+                    .arg("-output")
+                    .arg(&output_path)
+                    .output()
+                    .unwrap();
+
+                paths.push(output_path);
+            }
+        }
+
+        std::process::Command::new("xcodebuild")
+            .arg("-create-xcframework")
+            .args(
+                paths
+                    .iter()
+                    .map(|x| [Path::new("-library").as_os_str(), x.as_os_str()])
+                    .flatten(),
+            )
+            .arg("-output")
+            .arg(format!("./dist/{}.xcframework", &package.name))
+            .output()
+            .unwrap();
     }
 }
 
