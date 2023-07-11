@@ -141,8 +141,8 @@ fn derive_manifest(manifest_path: Option<&Path>) -> (Metadata, Package, Vec<Targ
         .cloned()
         .collect::<Vec<_>>();
 
-    log::debug!("Got these packages:");
-    log::debug!("{:#?}", packages);
+    log::trace!("Got these packages:");
+    log::trace!("{:#?}", packages);
 
     let lib_targets = packages
         .iter()
@@ -166,8 +166,8 @@ fn derive_manifest(manifest_path: Option<&Path>) -> (Metadata, Package, Vec<Targ
         exit(1);
     }
 
-    log::debug!("Got these libs:");
-    log::debug!("{:#?}", &lib_targets);
+    log::trace!("Got these libs:");
+    log::trace!("{:#?}", &lib_targets);
 
     let (package, targets) = lib_targets.first().unwrap();
     (
@@ -517,7 +517,7 @@ async fn publish(args: PublishArgs) {
         .trim()
         .to_string()
     };
-    log::debug!("Derived repo URL {:?}", repo_url);
+    log::trace!("Derived repo URL {:?}", repo_url);
 
     let repo_tail: String = {
         let s = repo_url.as_str();
@@ -533,7 +533,7 @@ async fn publish(args: PublishArgs) {
         let (head, _) = git_tail.split_at(git_tail.len() - 4);
         head.to_string()
     };
-    log::debug!("Derived repo tail {:?}", repo_tail);
+    log::trace!("Derived repo tail {:?}", repo_tail);
 
     log::info!("Getting current releases...");
 
