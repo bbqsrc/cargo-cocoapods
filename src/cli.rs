@@ -293,7 +293,6 @@ fn init(args: InitArgs) {
 
     let mut podspec = Podspec::from(package.clone());
     podspec.disable_bitcode();
-    podspec.add_library_search_paths();
     for target in &targets {
         podspec.add_target(target);
     }
@@ -347,16 +346,15 @@ fn update(_args: UpdateArgs) {
         .unwrap();
 }
 
-fn build(args: BuildArgs) {
-    let has_subtree = std::fs::read_dir("./crate").is_ok();
-
-    let (metadata, package, targets) = derive_manifest(if has_subtree {
-        Some(Path::new("./crate/Cargo.toml"))
-    } else {
-        args.manifest_path.as_ref().map(|x| &**x)
-    });
+fn build_static_libs(
+    mut cargo_args: Vec<String>,
+    metadata: &Metadata,
+    package: &Package,
+    targets: &[Target],
+    dist_dir: &Path,
+    build_target: BuildTarget,
+) {
     let package_dir = package.manifest_path.parent().unwrap();
-    let mut cargo_args = args.cargo_args;
 
     if cargo_args.contains(&"--target".into()) {
         log::error!("Do not pass --target to the cargo args, we handle that!");
@@ -371,20 +369,9 @@ fn build(args: BuildArgs) {
         cargo_args.push("--lib".into())
     }
 
-    let dist_dir = if has_subtree {
-        Path::new("./dist").to_path_buf()
-    } else {
-        Path::new(&metadata.target_directory)
-            .parent()
-            .unwrap()
-            .join("dist")
-    };
-    std::fs::create_dir_all(&dist_dir).unwrap();
-
-    let build_all = !args.is_ios && !args.is_macos;
     let mut lib_paths = vec![];
 
-    if build_all || args.is_ios {
+    if build_target.is_ios() {
         for triple in IOS_TRIPLES {
             log::info!("Building for target '{}'...", triple);
             std::fs::create_dir_all(format!("./dist/{}", triple)).unwrap();
@@ -393,7 +380,7 @@ fn build(args: BuildArgs) {
                 std::process::exit(1);
             }
 
-            for target in &targets {
+            for target in targets {
                 lib_paths.push((
                     triple,
                     metadata
@@ -406,7 +393,7 @@ fn build(args: BuildArgs) {
         }
     }
 
-    if build_all || args.is_macos {
+    if build_target.is_macos() {
         for triple in MACOS_TRIPLES {
             log::info!("Building for target '{}'...", triple);
             std::fs::create_dir_all(format!("./dist/{}", triple)).unwrap();
@@ -415,7 +402,7 @@ fn build(args: BuildArgs) {
                 std::process::exit(1);
             }
 
-            for target in &targets {
+            for target in targets {
                 lib_paths.push((
                     triple,
                     metadata
@@ -438,82 +425,143 @@ fn build(args: BuildArgs) {
             }
         }
     }
+}
 
-    if args.xcframework {
-        let tmpdir = tempfile::tempdir().unwrap();
-        let mut paths = vec![];
+#[allow(non_camel_case_types)]
+#[derive(Debug, Clone, Copy)]
+enum BuildTarget {
+    _iOS,
+    MacOS,
+    Both,
+}
 
-        for target in &targets {
-            if build_all || args.is_macos {
-                paths.push(PathBuf::from(format!(
-                    "dist/aarch64-apple-ios/lib{}.a",
+impl BuildTarget {
+    fn is_ios(&self) -> bool {
+        matches!(self, BuildTarget::_iOS | BuildTarget::Both)
+    }
+
+    fn is_macos(&self) -> bool {
+        matches!(self, BuildTarget::MacOS | BuildTarget::Both)
+    }
+}
+
+fn build_xcframework(
+    package: &Package,
+    targets: &[Target],
+    dist_dir: &Path,
+    build_target: BuildTarget,
+) {
+    let tmpdir = tempfile::tempdir().unwrap();
+    let mut paths = vec![];
+
+    for target in targets {
+        if build_target.is_macos() {
+            let output_path = tmpdir.path().join("mac");
+            std::fs::create_dir_all(&output_path).unwrap();
+
+            let output_path = output_path
+                .join(format!("lib{}", target.name.replace("-", "_")))
+                .with_extension("a");
+
+            std::process::Command::new("lipo")
+                .arg("-create")
+                .arg(format!(
+                    "dist/aarch64-apple-darwin/lib{}.a",
                     target.name.replace("-", "_")
-                )));
+                ))
+                .arg(format!(
+                    "dist/x86_64-apple-darwin/lib{}.a",
+                    target.name.replace("-", "_")
+                ))
+                .arg("-output")
+                .arg(&output_path)
+                .output()
+                .unwrap();
 
-                let output_path = tmpdir.path().join("mac");
-                std::fs::create_dir_all(&output_path).unwrap();
-
-                let output_path = output_path
-                    .join(format!("lib{}", target.name.replace("-", "_")))
-                    .with_extension("a");
-
-                std::process::Command::new("lipo")
-                    .arg("-create")
-                    .arg(format!(
-                        "dist/aarch64-apple-darwin/lib{}.a",
-                        target.name.replace("-", "_")
-                    ))
-                    .arg(format!(
-                        "dist/x86_64-apple-darwin/lib{}.a",
-                        target.name.replace("-", "_")
-                    ))
-                    .arg("-output")
-                    .arg(&output_path)
-                    .output()
-                    .unwrap();
-
-                paths.push(output_path);
-            }
-
-            if build_all || args.is_ios {
-                let output_path = tmpdir.path().join("ios-sim");
-                std::fs::create_dir_all(&output_path).unwrap();
-
-                let output_path = output_path
-                    .join(format!("lib{}", target.name.replace("-", "_")))
-                    .with_extension("a");
-
-                std::process::Command::new("lipo")
-                    .arg("-create")
-                    .arg(format!(
-                        "dist/aarch64-apple-ios-sim/lib{}.a",
-                        target.name.replace("-", "_")
-                    ))
-                    .arg(format!(
-                        "dist/x86_64-apple-ios/lib{}.a",
-                        target.name.replace("-", "_")
-                    ))
-                    .arg("-output")
-                    .arg(&output_path)
-                    .output()
-                    .unwrap();
-
-                paths.push(output_path);
-            }
+            paths.push(output_path);
         }
 
-        std::process::Command::new("xcodebuild")
-            .arg("-create-xcframework")
-            .args(
-                paths
-                    .iter()
-                    .map(|x| [Path::new("-library").as_os_str(), x.as_os_str()])
-                    .flatten(),
-            )
-            .arg("-output")
-            .arg(format!("./dist/{}.xcframework", &package.name))
-            .output()
-            .unwrap();
+        if build_target.is_ios() {
+            paths.push(PathBuf::from(format!(
+                "dist/aarch64-apple-ios/lib{}.a",
+                target.name.replace("-", "_")
+            )));
+
+            let output_path = tmpdir.path().join("ios-sim");
+            std::fs::create_dir_all(&output_path).unwrap();
+
+            let output_path = output_path
+                .join(format!("lib{}", target.name.replace("-", "_")))
+                .with_extension("a");
+
+            std::process::Command::new("lipo")
+                .arg("-create")
+                .arg(format!(
+                    "dist/aarch64-apple-ios-sim/lib{}.a",
+                    target.name.replace("-", "_")
+                ))
+                .arg(format!(
+                    "dist/x86_64-apple-ios/lib{}.a",
+                    target.name.replace("-", "_")
+                ))
+                .arg("-output")
+                .arg(&output_path)
+                .output()
+                .unwrap();
+
+            paths.push(output_path);
+        }
+    }
+
+    std::process::Command::new("xcodebuild")
+        .arg("-create-xcframework")
+        .args(
+            paths
+                .iter()
+                .map(|x| [Path::new("-library").as_os_str(), x.as_os_str()])
+                .flatten(),
+        )
+        .arg("-output")
+        .arg(dist_dir.join(format!("{}.xcframework", &package.name.to_camel_case())))
+        .output()
+        .unwrap();
+}
+
+fn build(args: BuildArgs) {
+    let has_subtree = std::fs::read_dir("./crate").is_ok();
+    let (metadata, package, targets) = derive_manifest(if has_subtree {
+        Some(Path::new("./crate/Cargo.toml"))
+    } else {
+        args.manifest_path.as_ref().map(|x| &**x)
+    });
+
+    let dist_dir = if has_subtree {
+        Path::new("./dist").to_path_buf()
+    } else {
+        Path::new(&metadata.target_directory)
+            .parent()
+            .unwrap()
+            .join("dist")
+    };
+    std::fs::create_dir_all(&dist_dir).unwrap();
+
+    let build_target = match (args.is_ios, args.is_macos) {
+        (true, true) | (false, false) => BuildTarget::Both,
+        (true, false) => BuildTarget::_iOS,
+        (false, true) => BuildTarget::MacOS,
+    };
+
+    build_static_libs(
+        args.cargo_args,
+        &metadata,
+        &package,
+        &targets,
+        &dist_dir,
+        build_target,
+    );
+
+    if args.xcframework {
+        build_xcframework(&package, &targets, &dist_dir, build_target);
     }
 }
 

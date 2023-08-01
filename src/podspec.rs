@@ -5,13 +5,6 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use std::fmt::Display;
 
-// #[non_exhaustive]
-// struct Source {
-//     git: String,
-//     tag: String,
-//     submodules: bool,
-// }
-
 pub struct Source {
     pub http: String,
 }
@@ -19,7 +12,6 @@ pub struct Source {
 #[non_exhaustive]
 pub struct OsSubspec {
     pub deployment_target: String,
-    pub vendored_libraries: Vec<String>,
 }
 
 #[non_exhaustive]
@@ -32,9 +24,9 @@ pub struct Podspec {
     pub homepage: String,
     pub source: Source,
     pub source_files: Vec<String>,
-    pub libraries: Vec<String>,
     pub macos: OsSubspec,
     pub ios: OsSubspec,
+    pub vendored_frameworks: Vec<String>,
     pub pod_target_xcconfig: IndexMap<String, String>,
     pub prepare_command: Option<String>,
     pub preserve_paths: Vec<String>,
@@ -59,31 +51,6 @@ impl Podspec {
         self.pod_target_xcconfig
             .insert("ENABLE_BITCODE".into(), "NO".into());
     }
-
-    pub(crate) fn add_library_search_paths(&mut self) {
-        self.preserve_paths.push("dist/**/*".into());
-
-        self.pod_target_xcconfig.insert(
-            "LIBRARY_SEARCH_PATHS[sdk=iphoneos*][arch=arm64]".into(),
-            "${PODS_TARGET_SRCROOT}/dist/aarch64-apple-ios".into(),
-        );
-        self.pod_target_xcconfig.insert(
-            "LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*][arch=x86_64]".into(),
-            "${PODS_TARGET_SRCROOT}/dist/x86_64-apple-ios".into(),
-        );
-        self.pod_target_xcconfig.insert(
-            "LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*][arch=arm64]".into(),
-            "${PODS_TARGET_SRCROOT}/dist/aarch64-apple-ios-sim".into(),
-        );
-        self.pod_target_xcconfig.insert(
-            "LIBRARY_SEARCH_PATHS[sdk=macos*][arch=x86_64]".into(),
-            "${PODS_TARGET_SRCROOT}/dist/x86_64-apple-darwin".into(),
-        );
-        self.pod_target_xcconfig.insert(
-            "LIBRARY_SEARCH_PATHS[sdk=macos*][arch=arm64]".into(),
-            "${PODS_TARGET_SRCROOT}/dist/aarch64-apple-darwin".into(),
-        );
-    }
 }
 
 static AUTHOR_RE: Lazy<Regex> = regex_static::lazy_regex!(r"^\s*(.+?)(?: <(.+?)>)?\s*$");
@@ -105,6 +72,10 @@ impl From<Package> for Podspec {
                     log::warn!("Could not parse author line: '{}', skipping.", line);
                 }
             }
+        }
+
+        if authors.is_empty() {
+            authors.insert("Unknown".to_string(), "<EMAIL>".to_string());
         }
 
         let source = if let Some(repo) = &p.repository {
@@ -131,14 +102,12 @@ impl From<Package> for Podspec {
             source: Source { http: source },
             macos: OsSubspec {
                 deployment_target: "10.10".into(),
-                vendored_libraries: vec![],
             },
             ios: OsSubspec {
                 deployment_target: "8.0".into(),
-                vendored_libraries: vec![],
             },
             source_files: vec!["src/**/*".into()],
-            libraries: vec![],
+            vendored_frameworks: vec![format!("dist/{}.xcframework", p.name.to_camel_case())],
             pod_target_xcconfig: Default::default(),
             prepare_command: None,
             preserve_paths: vec![],
@@ -204,14 +173,6 @@ impl Display for Podspec {
             }
             f.write_str("  }\n")?;
         }
-
-        if !self.libraries.is_empty() {
-            f.write_fmt(format_args!(
-                "  spec.libraries = ['{}']\n",
-                self.libraries.join("', '")
-            ))?;
-        }
-
         if !self.preserve_paths.is_empty() {
             f.write_fmt(format_args!(
                 "  spec.preserve_paths = ['{}']\n",
@@ -219,17 +180,10 @@ impl Display for Podspec {
             ))?;
         }
 
-        if !self.macos.vendored_libraries.is_empty() {
+        if !self.vendored_frameworks.is_empty() {
             f.write_fmt(format_args!(
                 "  spec.macos.vendored_libraries = ['{}']\n",
-                self.macos.vendored_libraries.join("', '")
-            ))?;
-        }
-
-        if !self.ios.vendored_libraries.is_empty() {
-            f.write_fmt(format_args!(
-                "  spec.ios.vendored_libraries = ['{}']\n",
-                self.ios.vendored_libraries.join("', '")
+                self.vendored_frameworks.join("', '")
             ))?;
         }
 
@@ -242,11 +196,6 @@ impl Display for Podspec {
 
         f.write_str("  spec.source = {\n")?;
         f.write_fmt(format_args!("    :http => '{}',\n", self.source.http))?;
-        // f.write_fmt(format_args!("    :git => '{}',\n", self.source.git))?;
-        // f.write_fmt(format_args!("    :tag => '{}',\n", self.source.tag))?;
-        // if self.source.submodules {
-        //     f.write_str("    :submodules => true,\n")?;
-        // }
         f.write_str("  }\n")?;
         f.write_str("}\n")
     }
