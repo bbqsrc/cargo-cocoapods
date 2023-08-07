@@ -1,9 +1,9 @@
 use std::env;
 use std::process::exit;
-use tokio;
 
 mod cargo;
 mod cli;
+mod cmd;
 mod meta;
 mod podspec;
 
@@ -21,7 +21,7 @@ pub(crate) static IOS_TRIPLES: &[&str] = &[
 
 #[tokio::main]
 async fn main() {
-    env_logger::from_env(env_logger::Env::default().default_filter_or("debug")).init();
+    env_logger::from_env(env_logger::Env::default().default_filter_or("cargo_ndk=info")).init();
 
     if env::var("CARGO").is_err() {
         eprintln!("This binary may only be called via `cargo pod`.");

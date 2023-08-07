@@ -36,12 +36,12 @@ impl Podspec {
     pub(crate) fn add_target(&mut self, target: &Target) {
         match self.pod_target_xcconfig.get_mut("OTHER_LDFLAGS") {
             Some(v) => {
-                v.push_str(&format!(" -l{}", target.name.replace("-", "_")));
+                v.push_str(&format!(" -l{}", target.name.replace('-', "_")));
             }
             None => {
                 self.pod_target_xcconfig.insert(
                     "OTHER_LDFLAGS".into(),
-                    format!("-l{}", target.name.replace("-", "_")),
+                    format!("-l{}", target.name.replace('-', "_")),
                 );
             }
         }
@@ -79,7 +79,7 @@ impl From<Package> for Podspec {
         }
 
         let source = if let Some(repo) = &p.repository {
-            let captures = SOURCE_RE.captures(&repo);
+            let captures = SOURCE_RE.captures(repo);
             match captures {
                 Some(c) if c.get(1).is_some() && c.get(2).is_some() => {
                     format!("https://github.com/{}/{}/releases/download/v#{{spec.version}}/cargo-pod.tgz",
@@ -116,7 +116,7 @@ impl From<Package> for Podspec {
 }
 
 fn escape_apos(input: &str) -> String {
-    input.replace("'", "\\'")
+    input.replace('\'', "\\'")
 }
 
 impl Display for Podspec {
@@ -138,8 +138,8 @@ impl Display for Podspec {
         for (name, email) in self.authors.iter() {
             f.write_fmt(format_args!(
                 "    '{}' => '{}',\n",
-                escape_apos(&name),
-                escape_apos(&email)
+                escape_apos(name),
+                escape_apos(email)
             ))?;
         }
         f.write_str("  }\n")?;
@@ -167,8 +167,8 @@ impl Display for Podspec {
             for (key, value) in self.pod_target_xcconfig.iter() {
                 f.write_fmt(format_args!(
                     "    '{}' => '{}',\n",
-                    escape_apos(&key),
-                    escape_apos(&value)
+                    escape_apos(key),
+                    escape_apos(value)
                 ))?;
             }
             f.write_str("  }\n")?;

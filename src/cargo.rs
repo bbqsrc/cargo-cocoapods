@@ -21,13 +21,13 @@ pub(crate) fn build(
     cargo_cmd.arg("build");
 
     if is_nightly {
-        cargo_cmd.args(&["-Z", "build-std"]);
+        cargo_cmd.args(["-Z", "build-std"]);
     }
 
     cargo_cmd
         .args(cargo_args)
         .arg("--target")
-        .arg(&triple)
+        .arg(triple)
         .current_dir(dir)
         .status()
         .expect("cargo crashed")

@@ -7,14 +7,19 @@ use cargo_metadata::{Metadata, MetadataCommand, Package, Target};
 use glob::glob;
 use gumdrop::{Options, ParsingStyle};
 use heck::CamelCase;
-use reqwest;
+use jwalk::WalkDir;
+
 use serde::{Deserialize, Serialize};
 use std::{
     fs::File,
     io::{Read, Write},
 };
 
-use crate::{podspec::Podspec, IOS_TRIPLES, MACOS_TRIPLES};
+use crate::{
+    cmd::{lipo, Ar, Swiftc, Xcodebuild},
+    podspec::Podspec,
+    IOS_TRIPLES, MACOS_TRIPLES,
+};
 
 #[derive(Debug, Options)]
 struct BuildArgs {
@@ -29,9 +34,6 @@ struct BuildArgs {
 
     #[options(free, help = "args to be passed to `cargo build` step")]
     cargo_args: Vec<String>,
-
-    #[options(long = "xcframework", help = "Builds an .xcframework")]
-    xcframework: bool,
 
     manifest_path: Option<PathBuf>,
 }
@@ -182,14 +184,10 @@ fn derive_manifest(manifest_path: Option<&Path>) -> (Metadata, Package, Vec<Targ
 
 fn init_subtree(args: &InitArgs) {
     let subtree_url = args.subtree_url.as_ref().unwrap();
-    let branch = args
-        .subtree_branch
-        .as_ref()
-        .map(|x| &**x)
-        .unwrap_or_else(|| "main");
+    let branch = args.subtree_branch.as_deref().unwrap_or("main");
 
     let has_commits = std::process::Command::new("git")
-        .args(&["rev-parse", "HEAD"])
+        .args(["rev-parse", "HEAD"])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
@@ -221,21 +219,21 @@ fn init_subtree(args: &InitArgs) {
             .unwrap();
 
         std::process::Command::new("git")
-            .args(&["reset"])
+            .args(["reset"])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()
             .unwrap();
 
         std::process::Command::new("git")
-            .args(&["add", ".gitignore"])
+            .args(["add", ".gitignore"])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()
             .unwrap();
 
         std::process::Command::new("git")
-            .args(&["commit", "-m", "Initial commit"])
+            .args(["commit", "-m", "Initial commit"])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()
@@ -243,13 +241,13 @@ fn init_subtree(args: &InitArgs) {
     }
 
     std::process::Command::new("git")
-        .args(&["remote", "add", "-f", "crate", &subtree_url])
+        .args(["remote", "add", "-f", "crate", subtree_url])
         .status()
         .unwrap();
 
     std::process::Command::new("git")
-        .args(&[
-            "subtree", "add", "--prefix", "crate", "crate", &branch, "--squash",
+        .args([
+            "subtree", "add", "--prefix", "crate", "crate", branch, "--squash",
         ])
         .status()
         .unwrap();
@@ -257,14 +255,14 @@ fn init_subtree(args: &InitArgs) {
     std::fs::write(".crate-remote", subtree_url).unwrap();
 
     std::process::Command::new("git")
-        .args(&["add", ".crate-remote"])
+        .args(["add", ".crate-remote"])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
         .unwrap();
 
     std::process::Command::new("git")
-        .args(&["commit", "-m", "Add .crate-remote"])
+        .args(["commit", "-m", "Add .crate-remote"])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
@@ -282,7 +280,7 @@ fn init(args: InitArgs) {
         .subtree_url
         .as_ref()
         .map(|_| Path::new("crate/Cargo.toml"))
-        .or_else(|| args.manifest_path.as_ref().map(|x| &**x));
+        .or(args.manifest_path.as_deref());
 
     let (_metadata, package, targets) = derive_manifest(manifest_path);
     let mut config = crate::meta::config(&package);
@@ -311,7 +309,7 @@ fn init(args: InitArgs) {
             .unwrap()
             .join(&name)
             .with_extension("podspec"),
-        &podspec.to_string(),
+        podspec.to_string(),
     )
     .unwrap();
 
@@ -333,12 +331,12 @@ fn update(_args: UpdateArgs) {
     let crate_remote = std::fs::read_to_string(".crate-remote").unwrap();
 
     std::process::Command::new("git")
-        .args(&[
+        .args([
             "subtree",
             "pull",
             "--prefix",
             "crate",
-            &*crate_remote.trim(),
+            crate_remote.trim(),
             "main",
             "--squash",
         ])
@@ -376,7 +374,7 @@ fn build_static_libs(
             log::info!("Building for target '{}'...", triple);
             std::fs::create_dir_all(format!("./dist/{}", triple)).unwrap();
 
-            if !crate::cargo::build(&package_dir, triple, &cargo_args, false).success() {
+            if !crate::cargo::build(package_dir, triple, &cargo_args, false).success() {
                 std::process::exit(1);
             }
 
@@ -387,7 +385,7 @@ fn build_static_libs(
                         .target_directory
                         .join(triple)
                         .join("release")
-                        .join(format!("lib{}.a", target.name.replace("-", "_"))),
+                        .join(format!("lib{}.a", target.name.replace('-', "_"))),
                 ));
             }
         }
@@ -398,7 +396,7 @@ fn build_static_libs(
             log::info!("Building for target '{}'...", triple);
             std::fs::create_dir_all(format!("./dist/{}", triple)).unwrap();
 
-            if !crate::cargo::build(&package_dir, triple, &cargo_args, false).success() {
+            if !crate::cargo::build(package_dir, triple, &cargo_args, false).success() {
                 std::process::exit(1);
             }
 
@@ -409,7 +407,7 @@ fn build_static_libs(
                         .target_directory
                         .join(triple)
                         .join("release")
-                        .join(format!("lib{}.a", target.name.replace("-", "_"))),
+                        .join(format!("lib{}.a", target.name.replace('-', "_"))),
                 ));
             }
         }
@@ -443,88 +441,349 @@ impl BuildTarget {
     fn is_macos(&self) -> bool {
         matches!(self, BuildTarget::MacOS | BuildTarget::Both)
     }
+
+    fn triples(&self) -> impl Iterator<Item = &'_ str> {
+        const MAC: &[&str] = &["aarch64-apple-darwin", "x86_64-apple-darwin"];
+        const IOS: &[&str] = &[
+            "aarch64-apple-ios",
+            "aarch64-apple-ios-sim",
+            "x86_64-apple-ios",
+        ];
+        IOS.iter()
+            .filter(|_| self.is_ios())
+            .chain(MAC.iter().filter(|_| self.is_macos()))
+            .copied()
+    }
+
+    fn framework_targets(&self) -> impl Iterator<Item = &'_ str> {
+        const MAC: &[&str] = &["macos-universal"];
+        const IOS: &[&str] = &["aarch64-apple-ios", "ios-simulator"];
+        IOS.iter()
+            .filter(|_| self.is_ios())
+            .chain(MAC.iter().filter(|_| self.is_macos()))
+            .copied()
+    }
 }
 
-fn build_xcframework(
+fn build_safe_frameworks(
     package: &Package,
     targets: &[Target],
     dist_dir: &Path,
     build_target: BuildTarget,
 ) {
-    let tmpdir = tempfile::tempdir().unwrap();
-    let mut paths = vec![];
+    let package_dir = package.manifest_path.parent().unwrap();
+    let bindings_path = package_dir.join("bindings");
+
+    let swift_files = WalkDir::new(&bindings_path)
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_type().is_file())
+        .map(|entry| entry.path())
+        .collect::<Vec<_>>();
 
     for target in targets {
-        if build_target.is_macos() {
-            let output_path = tmpdir.path().join("mac");
-            std::fs::create_dir_all(&output_path).unwrap();
+        let sys_name = target.name.replace('-', "_");
+        let ffi_mod_name = format!("{sys_name}_ffi").to_camel_case();
+        let ffi_fw_name = format!("{ffi_mod_name}.framework");
 
-            let output_path = output_path
-                .join(format!("lib{}", target.name.replace("-", "_")))
-                .with_extension("a");
+        let mod_name = target.name.replace('-', "_").to_string().to_camel_case();
+        let fw_name = format!("{mod_name}.framework");
 
-            std::process::Command::new("lipo")
-                .arg("-create")
-                .arg(format!(
-                    "dist/aarch64-apple-darwin/lib{}.a",
-                    target.name.replace("-", "_")
-                ))
-                .arg(format!(
-                    "dist/x86_64-apple-darwin/lib{}.a",
-                    target.name.replace("-", "_")
-                ))
-                .arg("-output")
-                .arg(&output_path)
-                .output()
+        for triple in build_target.triples() {
+            let triple_dir = dist_dir.join(triple);
+            let ffi_fw_dir = triple_dir.join(&ffi_fw_name);
+            let fw_dir = triple_dir.join(&fw_name);
+
+            std::fs::create_dir_all(&fw_dir).unwrap();
+            dircpy::copy_dir(&ffi_fw_dir, &fw_dir).unwrap();
+            std::fs::rename(fw_dir.join("Headers"), fw_dir.join("PrivateHeaders")).unwrap();
+            std::fs::rename(fw_dir.join(&ffi_mod_name), fw_dir.join(&mod_name)).unwrap();
+            std::fs::write(
+                fw_dir.join("Modules").join("module.modulemap"),
+                format!(
+                    "framework module {mod_name} {{
+}}"
+                ),
+            )
+            .unwrap();
+
+            std::fs::write(
+                fw_dir.join("Modules").join("module.private.modulemap"),
+                format!(
+                    "framework module {mod_name}_Private {{
+    header \"{sys_name}.h\"
+    link \"{mod_name}\"
+}}"
+                ),
+            )
+            .unwrap();
+
+            // Build the bindings
+            let obj_path = Swiftc::build(
+                triple,
+                &Default::default(),
+                &mod_name,
+                &triple_dir,
+                &swift_files,
+            );
+            Ar::insert(&fw_dir.join(&mod_name), &obj_path);
+            let swift_mod_path = fw_dir
+                .join("Modules")
+                .join(format!("{mod_name}.swiftmodule"));
+            std::fs::create_dir_all(&swift_mod_path).unwrap();
+            let arch = current_arch(triple);
+            for ext in [
+                "swiftdoc",
+                "swiftmodule",
+                "swiftsourceinfo",
+                "abi.json",
+                "swiftinterface",
+            ] {
+                std::fs::rename(
+                    format!("{mod_name}.{ext}"),
+                    swift_mod_path.join(format!("{arch}.{ext}")),
+                )
                 .unwrap();
-
-            paths.push(output_path);
+            }
+            log::debug!("Deleting {}", &obj_path);
+            std::fs::remove_file(obj_path).unwrap();
+            std::fs::remove_file(format!("{mod_name}.private.swiftinterface")).unwrap();
         }
 
         if build_target.is_ios() {
-            paths.push(PathBuf::from(format!(
-                "dist/aarch64-apple-ios/lib{}.a",
-                target.name.replace("-", "_")
-            )));
-
-            let output_path = tmpdir.path().join("ios-sim");
+            let output_path = dist_dir.join("ios-simulator").join(&fw_name);
             std::fs::create_dir_all(&output_path).unwrap();
+            let lipo_1 = dist_dir
+                .join("aarch64-apple-ios-sim")
+                .join(&fw_name)
+                .join(&mod_name);
+            let lipo_2 = dist_dir
+                .join("x86_64-apple-ios")
+                .join(&fw_name)
+                .join(&mod_name);
 
-            let output_path = output_path
-                .join(format!("lib{}", target.name.replace("-", "_")))
-                .with_extension("a");
+            lipo([lipo_1, lipo_2].iter(), &output_path.join(&mod_name)).unwrap();
 
-            std::process::Command::new("lipo")
-                .arg("-create")
-                .arg(format!(
-                    "dist/aarch64-apple-ios-sim/lib{}.a",
-                    target.name.replace("-", "_")
-                ))
-                .arg(format!(
-                    "dist/x86_64-apple-ios/lib{}.a",
-                    target.name.replace("-", "_")
-                ))
-                .arg("-output")
-                .arg(&output_path)
-                .output()
-                .unwrap();
-
-            paths.push(output_path);
+            dircpy::copy_dir(
+                dist_dir
+                    .join("aarch64-apple-ios-sim")
+                    .join(&fw_name)
+                    .join("PrivateHeaders"),
+                output_path.join("PrivateHeaders"),
+            )
+            .unwrap();
+            dircpy::copy_dir(
+                dist_dir
+                    .join("x86_64-apple-ios")
+                    .join(&fw_name)
+                    .join("Modules"),
+                output_path.join("Modules"),
+            )
+            .unwrap();
+            dircpy::copy_dir(
+                dist_dir
+                    .join("aarch64-apple-ios-sim")
+                    .join(&fw_name)
+                    .join("Modules"),
+                output_path.join("Modules"),
+            )
+            .unwrap();
         }
+
+        if build_target.is_macos() {
+            let output_path = dist_dir.join("macos-universal").join(&fw_name);
+            std::fs::create_dir_all(&output_path).unwrap();
+            lipo(
+                [
+                    dist_dir
+                        .join("aarch64-apple-darwin")
+                        .join(&fw_name)
+                        .join(&mod_name),
+                    dist_dir
+                        .join("x86_64-apple-darwin")
+                        .join(&fw_name)
+                        .join(&mod_name),
+                ]
+                .iter(),
+                &output_path.join(&mod_name),
+            )
+            .unwrap();
+
+            dircpy::copy_dir(
+                dist_dir
+                    .join("aarch64-apple-darwin")
+                    .join(&fw_name)
+                    .join("PrivateHeaders"),
+                output_path.join("PrivateHeaders"),
+            )
+            .unwrap();
+            dircpy::copy_dir(
+                dist_dir
+                    .join("x86_64-apple-darwin")
+                    .join(&fw_name)
+                    .join("Modules"),
+                output_path.join("Modules"),
+            )
+            .unwrap();
+            dircpy::copy_dir(
+                dist_dir
+                    .join("aarch64-apple-darwin")
+                    .join(&fw_name)
+                    .join("Modules"),
+                output_path.join("Modules"),
+            )
+            .unwrap();
+        }
+
+        Xcodebuild::create_xcframework_frameworks(
+            &mod_name,
+            build_target
+                .framework_targets()
+                .map(|x| dist_dir.join(x).join(format!("{mod_name}.framework"))),
+            dist_dir,
+        )
+        .unwrap();
+
+        Xcodebuild::create_xcframework_frameworks(
+            &ffi_mod_name,
+            build_target
+                .framework_targets()
+                .map(|x| dist_dir.join(x).join(format!("{ffi_mod_name}.framework"))),
+            dist_dir,
+        )
+        .unwrap();
+    }
+}
+
+fn current_arch(triple: &str) -> &str {
+    if triple.starts_with("aarch64-") {
+        return "arm64";
     }
 
-    std::process::Command::new("xcodebuild")
-        .arg("-create-xcframework")
-        .args(
-            paths
-                .iter()
-                .map(|x| [Path::new("-library").as_os_str(), x.as_os_str()])
-                .flatten(),
-        )
-        .arg("-output")
-        .arg(dist_dir.join(format!("{}.xcframework", &package.name.to_camel_case())))
-        .output()
-        .unwrap();
+    if triple.starts_with("x86_64-") {
+        return "x86_64";
+    }
+
+    panic!("unsupported triple: {}", triple);
+}
+
+fn build_ffi_frameworks(
+    package: &Package,
+    targets: &[Target],
+    dist_dir: &Path,
+    build_target: BuildTarget,
+) {
+    let package_dir = package.manifest_path.parent().unwrap();
+    let headers_path = package_dir.join("headers");
+
+    for target in targets {
+        let sys_name = target.name.replace('-', "_");
+        let mod_name = format!("{sys_name}_ffi").to_camel_case();
+        let fw_name = format!("{mod_name}.framework");
+
+        for triple in build_target.triples() {
+            let triple_dir = dist_dir.join(triple);
+            let fw_dir = triple_dir.join(&fw_name);
+
+            let headers_dir = fw_dir.join("Headers");
+            std::fs::create_dir_all(&fw_dir).unwrap();
+            std::fs::create_dir_all(&headers_dir).unwrap();
+            std::fs::create_dir_all(&fw_dir.join("Modules")).unwrap();
+
+            dircpy::copy_dir(&headers_path, &headers_dir).unwrap();
+
+            std::fs::copy(
+                triple_dir.join(format!("lib{sys_name}.a")),
+                fw_dir.join(&mod_name),
+            )
+            .unwrap();
+
+            std::fs::write(
+                fw_dir.join("Modules").join("module.modulemap"),
+                format!(
+                    "framework module {mod_name} {{
+    header \"{sys_name}.h\"
+    link \"{mod_name}\"
+}}"
+                ),
+            )
+            .unwrap();
+        }
+
+        if build_target.is_ios() {
+            let output_path = dist_dir.join("ios-simulator").join(&fw_name);
+            std::fs::create_dir_all(&output_path).unwrap();
+            lipo(
+                [
+                    dist_dir
+                        .join("aarch64-apple-ios-sim")
+                        .join(&fw_name)
+                        .join(&mod_name),
+                    dist_dir
+                        .join("x86_64-apple-ios")
+                        .join(&fw_name)
+                        .join(&mod_name),
+                ]
+                .iter(),
+                &output_path.join(&mod_name),
+            )
+            .unwrap();
+
+            dircpy::copy_dir(
+                dist_dir
+                    .join("aarch64-apple-ios-sim")
+                    .join(&fw_name)
+                    .join("Headers"),
+                output_path.join("Headers"),
+            )
+            .unwrap();
+            dircpy::copy_dir(
+                dist_dir
+                    .join("aarch64-apple-ios-sim")
+                    .join(&fw_name)
+                    .join("Modules"),
+                output_path.join("Modules"),
+            )
+            .unwrap();
+        }
+
+        if build_target.is_macos() {
+            let output_path = dist_dir.join("macos-universal").join(&fw_name);
+            std::fs::create_dir_all(&output_path).unwrap();
+            lipo(
+                [
+                    dist_dir
+                        .join("aarch64-apple-darwin")
+                        .join(&fw_name)
+                        .join(&mod_name),
+                    dist_dir
+                        .join("x86_64-apple-darwin")
+                        .join(&fw_name)
+                        .join(&mod_name),
+                ]
+                .iter(),
+                &output_path.join(&mod_name),
+            )
+            .unwrap();
+
+            dircpy::copy_dir(
+                dist_dir
+                    .join("aarch64-apple-darwin")
+                    .join(&fw_name)
+                    .join("Headers"),
+                output_path.join("Headers"),
+            )
+            .unwrap();
+            dircpy::copy_dir(
+                dist_dir
+                    .join("aarch64-apple-darwin")
+                    .join(&fw_name)
+                    .join("Modules"),
+                output_path.join("Modules"),
+            )
+            .unwrap();
+        }
+    }
 }
 
 fn build(args: BuildArgs) {
@@ -532,7 +791,7 @@ fn build(args: BuildArgs) {
     let (metadata, package, targets) = derive_manifest(if has_subtree {
         Some(Path::new("./crate/Cargo.toml"))
     } else {
-        args.manifest_path.as_ref().map(|x| &**x)
+        args.manifest_path.as_deref()
     });
 
     let dist_dir = if has_subtree {
@@ -560,9 +819,8 @@ fn build(args: BuildArgs) {
         build_target,
     );
 
-    if args.xcframework {
-        build_xcframework(&package, &targets, &dist_dir, build_target);
-    }
+    build_ffi_frameworks(&package, &targets, &dist_dir, build_target);
+    build_safe_frameworks(&package, &targets, &dist_dir, build_target);
 }
 
 fn bundle(_args: BundleArgs) {
@@ -577,7 +835,6 @@ fn bundle(_args: BundleArgs) {
     let cur = std::env::current_dir().unwrap();
     let files = std::fs::read_dir(&cur)
         .unwrap()
-        .into_iter()
         .filter_map(Result::ok)
         .filter(|x| set.is_match(x.path()))
         .map(|x| x.path().strip_prefix(&cur).unwrap().to_path_buf());
@@ -586,7 +843,7 @@ fn bundle(_args: BundleArgs) {
         .arg("zcvf")
         .arg("cargo-pod.tgz")
         .args(files)
-        .args(&["src", "dist"])
+        .args(["src", "dist"])
         .status()
         .unwrap();
 }
@@ -636,7 +893,7 @@ async fn publish(args: PublishArgs) {
     } else {
         String::from_utf8(
             std::process::Command::new("git")
-                .args(&["remote", "get-url", "origin"])
+                .args(["remote", "get-url", "origin"])
                 .output()
                 .unwrap()
                 .stdout,
@@ -650,7 +907,7 @@ async fn publish(args: PublishArgs) {
     let repo_tail: String = {
         let s = repo_url.as_str();
         let git_tail = if s.starts_with("git@github") {
-            let (_, tail) = s.split_once(":").unwrap();
+            let (_, tail) = s.split_once(':').unwrap();
             tail
         } else if s.starts_with("https://github.com/") {
             let (_, tail) = s.split_at("https://github.com/".len());
@@ -726,7 +983,7 @@ async fn publish(args: PublishArgs) {
     log::info!("Uploading cargo-pod.tgz...");
     api_client
         .post({
-            let (head, _) = new_release.upload_url.as_str().split_once("{").unwrap();
+            let (head, _) = new_release.upload_url.as_str().split_once('{').unwrap();
             head.to_string()
         })
         .body(asset_data)
@@ -747,13 +1004,12 @@ fn example(args: ExampleArgs) {
     let headers = glob::glob("src/**/*.h")
         .unwrap()
         .filter_map(Result::ok)
-        .map(|x| {
+        .flat_map(|x| {
             vec![
                 "-import-objc-header".to_string(),
                 x.to_string_lossy().to_string(),
             ]
         })
-        .flatten()
         .collect::<Vec<_>>();
 
     let libs = glob(&format!("{}/lib*.a", &dist_dir))
@@ -810,16 +1066,12 @@ fn print_help(args: &Args) {
     let mut command = args as &dyn Options;
     let mut command_str = String::new();
 
-    loop {
-        if let Some(new_command) = command.command() {
-            command = new_command;
+    while let Some(new_command) = command.command() {
+        command = new_command;
 
-            if let Some(name) = new_command.command_name() {
-                command_str.push(' ');
-                command_str.push_str(name);
-            }
-        } else {
-            break;
+        if let Some(name) = new_command.command_name() {
+            command_str.push(' ');
+            command_str.push_str(name);
         }
     }
 
