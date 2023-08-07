@@ -55,6 +55,9 @@ impl Swiftc {
                 "-emit-library",
                 "-emit-object",
                 "-static",
+                "-swift-version",
+                "5",
+                "-enable-library-evolution",
                 "-sdk",
                 &sdk,
                 "-target",
@@ -75,6 +78,8 @@ impl Swiftc {
             .args([
                 "-emit-module",
                 "-static",
+                "-swift-version",
+                "5",
                 "-sdk",
                 &sdk,
                 "-enable-library-evolution",
@@ -100,9 +105,13 @@ pub struct Ar;
 impl Ar {
     pub fn insert(path: &Path, input: &str) {
         let _output = std::process::Command::new("ar")
-            .arg("q")
+            .arg("rs")
             .arg(path)
             .arg(input)
+            .output()
+            .unwrap();
+        let _output = std::process::Command::new("ranlib")
+            .arg(path)
             .output()
             .unwrap();
     }

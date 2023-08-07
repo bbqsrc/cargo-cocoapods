@@ -496,6 +496,11 @@ fn build_safe_frameworks(
 
             std::fs::create_dir_all(&fw_dir).unwrap();
             dircpy::copy_dir(&ffi_fw_dir, &fw_dir).unwrap();
+            std::fs::write(
+                fw_dir.join("Info.plist"),
+                INFO_PLIST.replace("%BUNDLE_NAME%", &mod_name),
+            )
+            .unwrap();
             std::fs::rename(fw_dir.join("Headers"), fw_dir.join("PrivateHeaders")).unwrap();
             std::fs::rename(fw_dir.join(&ffi_mod_name), fw_dir.join(&mod_name)).unwrap();
             std::fs::write(
@@ -553,6 +558,11 @@ fn build_safe_frameworks(
         if build_target.is_ios() {
             let output_path = dist_dir.join("ios-simulator").join(&fw_name);
             std::fs::create_dir_all(&output_path).unwrap();
+            std::fs::write(
+                output_path.join("Info.plist"),
+                INFO_PLIST.replace("%BUNDLE_NAME%", &mod_name),
+            )
+            .unwrap();
             let lipo_1 = dist_dir
                 .join("aarch64-apple-ios-sim")
                 .join(&fw_name)
@@ -593,6 +603,11 @@ fn build_safe_frameworks(
         if build_target.is_macos() {
             let output_path = dist_dir.join("macos-universal").join(&fw_name);
             std::fs::create_dir_all(&output_path).unwrap();
+            std::fs::write(
+                output_path.join("Info.plist"),
+                INFO_PLIST.replace("%BUNDLE_NAME%", &mod_name),
+            )
+            .unwrap();
             lipo(
                 [
                     dist_dir
@@ -667,6 +682,25 @@ fn current_arch(triple: &str) -> &str {
     panic!("unsupported triple: {}", triple);
 }
 
+const INFO_PLIST: &str = r#"
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleExecutable</key>
+	<string>%BUNDLE_NAME%</string>
+	<key>CFBundleIdentifier</key>
+	<string>internal.cargo-cocoapods.%BUNDLE_NAME%</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>%BUNDLE_NAME%</string>
+	<key>CFBundlePackageType</key>
+	<string>FMWK</string>
+</dict>
+</plist>
+"#;
+
 fn build_ffi_frameworks(
     package: &Package,
     targets: &[Target],
@@ -689,6 +723,11 @@ fn build_ffi_frameworks(
             std::fs::create_dir_all(&fw_dir).unwrap();
             std::fs::create_dir_all(&headers_dir).unwrap();
             std::fs::create_dir_all(&fw_dir.join("Modules")).unwrap();
+            std::fs::write(
+                fw_dir.join("Info.plist"),
+                INFO_PLIST.replace("%BUNDLE_NAME%", &mod_name),
+            )
+            .unwrap();
 
             dircpy::copy_dir(&headers_path, &headers_dir).unwrap();
 
@@ -745,6 +784,11 @@ fn build_ffi_frameworks(
                 output_path.join("Modules"),
             )
             .unwrap();
+            std::fs::write(
+                output_path.join("Info.plist"),
+                INFO_PLIST.replace("%BUNDLE_NAME%", &mod_name),
+            )
+            .unwrap();
         }
 
         if build_target.is_macos() {
@@ -780,6 +824,11 @@ fn build_ffi_frameworks(
                     .join(&fw_name)
                     .join("Modules"),
                 output_path.join("Modules"),
+            )
+            .unwrap();
+            std::fs::write(
+                output_path.join("Info.plist"),
+                INFO_PLIST.replace("%BUNDLE_NAME%", &mod_name),
             )
             .unwrap();
         }
